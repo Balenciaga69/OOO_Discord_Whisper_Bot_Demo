@@ -25,50 +25,58 @@ export class PowerShellRunner {
    */
   public async executeWhisper() {
     console.info('xZx ', this.executeWhisper.name, '觸發')
-    const language = 'Chinese'
-    //  取得所有檔案
-    const readdir = promisify(fs.readdir)
-    const files = await readdir(this._dirPath)
-    const allVoices = _.filter(files, (file) => /\.(mp3|wav|m4a)$/.test(file))
-    const allVoiceDir = _.map(allVoices, (f) => this._dirPath + f)
-    const sortedVoice = _.sortBy(allVoiceDir)
-    const sortedVoiceString = _.join(sortedVoice, ' ')
-    if (allVoices.length === 0) {
-      console.error(' XzX 該資料夾沒有檔案')
-      return
+    try {
+      const language = 'Chinese'
+      //  取得所有檔案
+      const readdir = promisify(fs.readdir)
+      const files = await readdir(this._dirPath)
+      const allVoices = _.filter(files, (file) => /\.(mp3|wav|m4a)$/.test(file))
+      const allVoiceDir = _.map(allVoices, (f) => this._dirPath + f)
+      const sortedVoice = _.sortBy(allVoiceDir)
+      const sortedVoiceString = _.join(sortedVoice, ' ')
+      if (allVoices.length === 0) {
+        console.error(' XzX 該資料夾沒有檔案')
+        return
+      }
+
+      // 生成 whisper 指令
+      const whisperCommand = `whisper ${sortedVoiceString} --output_dir ${this._dirPath} --output_format txt --language ${language} --model medium --device cuda`
+
+      process.env.PYTHONIOENCODING = 'utf-8'
+      const startTime = dayjs()
+      const execPromise = promisify(exec)
+      await execPromise(whisperCommand)
+      const endTime = dayjs()
+      const timeDiff = endTime.diff(startTime, 'second')
+      console.info('xZx ', this.executeWhisper.name, '執行完畢 共計', timeDiff, '秒')
+    } catch (error) {
+      console.error('xZx Error', this.convertPCM.name, error)
     }
-
-    // 生成 whisper 指令
-    const whisperCommand = `whisper ${sortedVoiceString} --output_dir ${this._dirPath} --output_format txt --language ${language} --model small --device cuda`
-
-    process.env.PYTHONIOENCODING = 'utf-8'
-    const startTime = dayjs()
-    const execPromise = promisify(exec)
-    await execPromise(whisperCommand)
-    const endTime = dayjs()
-    const timeDiff = endTime.diff(startTime, 'second')
-    console.info('xZx ', this.executeWhisper.name, '執行完畢 共計', timeDiff, '秒')
   }
 
   /**
    * 將 PCM 文件轉換為 MP3 文件並刪除原始 PCM 文件。
    */
   public async convertPCM() {
-    const readdir = promisify(fs.readdir)
-    const unlink = promisify(fs.unlink)
-    const files = await readdir(this._dirPath)
-    const allPCM = _.filter(files, (file) => /\.(pcm)$/.test(file))
-    const allPCMDir = _.map(allPCM, (f) => this._dirPath + f)
-    console.info('xZx ', this.convertPCM.name, '共計', allPCMDir.length, '個檔案')
-    for (const f of allPCMDir) {
-      const fileStat = await stat(f)
-      if (fileStat.size >= 200 * 1024) {
-        const execPromise = promisify(exec)
-        const command = `ffmpeg -f s16le -ar 48000 -ac 2 -i ${f} ${_.replace(f, '.pcm', '.mp3')}`
-        console.info('xZx command', command)
-        await execPromise(command)
+    try {
+      const readdir = promisify(fs.readdir)
+      const unlink = promisify(fs.unlink)
+      const files = await readdir(this._dirPath)
+      const allPCM = _.filter(files, (file) => /\.(pcm)$/.test(file))
+      const allPCMDir = _.map(allPCM, (f) => this._dirPath + f)
+      console.info('xZx ', this.convertPCM.name, '共計', allPCMDir.length, '個檔案')
+      for (const f of allPCMDir) {
+        const fileStat = await stat(f)
+        if (fileStat.size >= 200 * 1024) {
+          const execPromise = promisify(exec)
+          const command = `ffmpeg -f s16le -ar 48000 -ac 2 -i ${f} ${_.replace(f, '.pcm', '.mp3')}`
+          console.info('xZx command', command)
+          await execPromise(command)
+        }
+        await unlink(f)
       }
-      await unlink(f)
+    } catch (error) {
+      console.error('xZx Error', this.convertPCM.name, error)
     }
   }
 
@@ -97,7 +105,7 @@ export class PowerShellRunner {
    * 刪除 超過 n 分鐘的所有檔案
    */
   public async deleteOldFiles(): Promise<void> {
-    const DELETE_MINS = 30
+    const DELETE_MINS = 5
     const readdir = promisify(fs.readdir)
     const stat = promisify(fs.stat)
     const unlink = promisify(fs.unlink)
