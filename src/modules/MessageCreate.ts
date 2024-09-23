@@ -23,10 +23,12 @@ export class MsgCreateEvents {
     this._isRunPS = false
     this._connection = null
   }
-  public StartRecording(message: TheMessage) {
+
+  public async StartRecording(message: TheMessage) {
     if (this._isTrigged) {
-      message.reply({ content: '熊男 還沒再見喔!' })
-      return console.info('xZx', this.StartRecording.name, '無法使用')
+      await message.reply({ content: '熊男 還沒再見喔!' })
+      console.info('xZx', this.StartRecording.name, '無法使用')
+      return
     }
     console.info('xZx', this.StartRecording.name, '觸發')
 
@@ -56,21 +58,26 @@ export class MsgCreateEvents {
       }
     })
 
+    // 定義儲存音訊的檔案路徑，並創建寫入流
+    let speakingCount = 0
+    let writeStream = this._createNewStream()
+
     // 接收到有人開始說話
     this._connection.receiver.speaking.on('start', (userId: string) => {
       // 確保必定有連接物件
       if (_.isNil(this._connection)) return
-      // 訂閱該用戶的音訊流，並設置在靜音持續500毫秒後結束接收音訊
+      console.info('xZx userId', userId, '進入連線')
+      if (speakingCount === 0) {
+        writeStream = this._createNewStream()
+      }
+      // 說話人數 +1
+      speakingCount++
+      // 訂閱該用戶的音訊流，並設置在靜音持續 2000 毫秒後結束接收音訊
       const audioReceiveStream = this._connection.receiver.subscribe(userId, {
-        end: { duration: 500, behavior: EndBehaviorType.AfterSilence },
+        end: { duration: 2000, behavior: EndBehaviorType.AfterSilence },
       })
       // 創建Opus解碼器以解碼音訊流
       const opusDecoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 })
-
-      // 定義儲存音訊的檔案路徑，並創建寫入流
-      const fileName = `${Date.now()}_${userId}`
-      const outputFile = `C:/temp/${fileName}.pcm`
-      const writeStream = fs.createWriteStream(outputFile, { flags: 'a' }) // 用 'a' 模式追加寫入
 
       // 將音訊流解碼後寫入檔案
       audioReceiveStream.pipe(opusDecoder).on('data', (decodedData: unknown) => {
@@ -79,10 +86,10 @@ export class MsgCreateEvents {
 
       // 當音訊流結束時，關閉寫入流並記錄檔案
       audioReceiveStream.on('end', () => {
-        writeStream.end()
-        audioReceiveStream.destroy()
-        const formattedTime = dayjs().format('HH:mm')
-        console.info('xZx ', `[${formattedTime}]`, '用戶', userId, '檔案', outputFile)
+        speakingCount-- // 少一個人說話
+        if (speakingCount > 0) return // 還有人在說話 則不關閉錄音
+        writeStream.end() // 退出串流
+        console.info('xZx ', dayjs().format('HH:mm'), '用戶', userId, '不說話了')
       })
     })
   }
@@ -98,8 +105,9 @@ export class MsgCreateEvents {
 
   public async DoThings(message: TheMessage) {
     if (this._isRunPS) {
-      message.reply('熊男正在處理中 不要吵')
-      return console.info('xZx', this.DoThings.name, '無法使用')
+      await message.reply('熊男正在處理中 不要吵')
+      console.info('xZx', this.DoThings.name, '無法使用')
+      return
     }
     this._isRunPS = true
     console.info('xZx', this.DoThings.name, '觸發')
@@ -111,26 +119,34 @@ export class MsgCreateEvents {
     console.info('xZx ', 'convertPCM', 'done')
     await psRunner.executeWhisper()
     console.info('xZx ', 'executeWhisper', 'done')
-    message.reply('熊男做完了')
+    await message.reply('熊男做完了')
     this._isRunPS = false
   }
 
   public async getConversations(message: TheMessage) {
     const conversations = await this._createConversations(message)
-    message.reply(conversations)
+    await message.reply(conversations)
   }
 
   private async _createConversations(message: TheMessage) {
     const textInfoArray = await new PowerShellRunner().txtToJson()
     const allTextArray: string[] = ['以下是過去三十分鐘的對話內容 (可能有一分鐘以上延遲4060ti跑不動AI)']
-    const members = await message.guild?.members.cache
+    const members = message.guild?.members.cache
     for (const textInfo of textInfoArray) {
       const time = dayjs(_.toNumber(textInfo.timestamp)).format('HH:mm')
       const nickName = members?.get(textInfo.userId)?.nickname ?? '小孤獨'
-      const text = `[${time}] ${nickName} 說: ${textInfo.context}`
+      // FIXME: 時間與成員對不上問題 尚未解決前不要復原
+      // const text = `[${time}] ${nickName} 說: ${textInfo.context}`
+      const text = `[${time}]: ${textInfo.context}`
       allTextArray.push(text)
     }
     const allConversations = allTextArray.join('\n')
     return allConversations
+  }
+
+  private _createNewStream() {
+    const fileName = `${Date.now()}_523158078401675274`
+    const outputFile = `C:/temp/${fileName}.pcm`
+    return fs.createWriteStream(outputFile, { flags: 'a' }) // 用 'a' 模式追加寫入
   }
 }
